@@ -66,7 +66,7 @@ def save_to_csv(category, product_links):
     """
     Guarda los enlaces de productos en un archivo CSV.
     """
-    filename = f"{category}_links.csv"
+    filename = f"links/{category}_links.csv"
     with open(filename, mode='w', newline='', encoding='utf-8') as file:
         writer = csv.writer(file)
         writer.writerow(["Product Link"])  # Escribir encabezado

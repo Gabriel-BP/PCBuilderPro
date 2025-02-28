@@ -8,7 +8,7 @@ def is_product_link(link):
     return len(parts) > 5 and parts[-1] != ""
 
 # Obtener la ruta de la carpeta actual
-folder_path = os.getcwd()
+folder_path = os.getcwd() + "/links"
 
 # Iterar sobre todos los archivos en la carpeta actual
 for filename in os.listdir(folder_path):
@@ -31,7 +31,7 @@ for filename in os.listdir(folder_path):
             # Crear el nombre del nuevo archivo CSV
             base_name = filename.replace("_links.csv", "")  # Extraer el nombre base (e.g., "case")
             output_file = f"unique_{base_name}_links.csv"
-            output_path = os.path.join(folder_path, output_file)
+            output_path = os.path.join("links_procesados", output_file)
             
             # Guardar los enlaces únicos en un nuevo archivo CSV
             pd.DataFrame({"Unique Product Links": unique_links}).to_csv(output_path, index=False)
