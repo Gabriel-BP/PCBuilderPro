@@ -55,8 +55,8 @@ def scrape_product(url):
             
             # Imagen
             img_tag = soup.find('img', class_='rounded-lg float-sm-right d-block mx-auto')
-            if img_tag and 'src' in img_tag.attrs:
-                data['Imagen'] = img_tag['src']
+            if img_tag:
+                data['Imagen'] = img_tag.get('src') or img_tag.get('data-src') or 'N/A'
             else:
                 data['Imagen'] = 'N/A'
             
@@ -67,32 +67,30 @@ def scrape_product(url):
                 product_links = price_table.find_all('p', class_='font-size-xs m-0')
                 for product_link in product_links:
                     text = product_link.get_text(strip=True)
+                    print(text)
                     lines = text.splitlines()
                     for line in lines:
                         parts = line.split()
                         unidades = None
                         
-                        # Buscar monedas
                         for i, part in enumerate(parts):
-                            monedas = ["$", "€", "£"]
-                            
+                            monedas = ["€", "$", "£"]
                             if part.isdigit():  # Si es número, probablemente sean unidades
                                 unidades = int(part)
 
-                            # Asignar precio nuevo
                             if "nuevo" in part.lower() and unidades is not None:
-                                if "€" in line:  # Priorizar euros
-                                    prices["Nuevo Precio"] = parts[i - 1]
-                                    prices["Nuevo Unidades"] = unidades
-                                    unidades = None  # Reiniciar para evitar mezclar unidades con otras líneas
+                                prices["Nuevo Unidades"] = unidades
 
-                            # Asignar precio utilizado
-                            elif "utilizado" in part.lower() and unidades is not None:
-                                if "€" in line:  # Priorizar euros
-                                    prices["Utilizado Precio"] = parts[i - 1]
-                                    prices["Utilizado Unidades"] = unidades
-                                    unidades = None  # Reiniciar para evitar mezclar unidades con otras líneas
+                            if any(moneda in part for moneda in monedas) and "nuevo" in line.lower():
+                                prices["Nuevo Precio"] = parts[i - 1]
+                                unidades = None  # Reiniciar para evitar mezclar unidades con otras líneas
 
+                            if "utilizado" in part.lower() and unidades is not None:
+                                prices["Utilizado Unidades"] = unidades
+
+                            if any(moneda in part for moneda in monedas) and "nuevo" in line.lower():
+                                prices["Utilizado Precio"] = parts[i - 1]
+                                unidades = None  # Reiniciar para evitar mezclar unidades con otras líneas
             data['Precios'] = prices or 'N/A'
             
             return data
