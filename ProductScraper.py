@@ -1,52 +1,160 @@
 import cloudscraper
 import pandas as pd
 from bs4 import BeautifulSoup
+import os
+import time
 
-# Leer el primer enlace de procesadores procesado
-df = pd.read_csv("links_procesados/unique_processor_links.csv")
-sample_url = df["Unique Product Links"].iloc[0]  # Tomamos el primer enlace de ejemplo
-
-# Configurar el scraper
+# Configuración inicial
 scraper = cloudscraper.create_scraper()
+MAX_RETRIES = 3
+DELAY_BETWEEN_REQUESTS = 5  # Segundos
 
-# Obtener el HTML
-print(f"Obteniendo HTML de: {sample_url}")
-response = scraper.get(sample_url)
+# Crear directorio de salida si no existe
+output_dir = "productos_procesados"
+os.makedirs(output_dir, exist_ok=True)
 
-# Buscar el nombre del producto
-soup = BeautifulSoup(response.text, "html.parser")
-product_name = soup.find("h2", class_="h4 product-title text-center text-sm-left mb-2").text.strip()
-print(f"Nombre del producto: {product_name}")
+def scrape_product(url):
+    """Extrae datos de un producto con manejo de errores"""
+    retries = 0
+    while retries < MAX_RETRIES:
+        try:
+            response = scraper.get(url)
+            
+            if response.status_code == 429:
+                print(f"Error 429: Esperando {DELAY_BETWEEN_REQUESTS*2} segundos...")
+                time.sleep(DELAY_BETWEEN_REQUESTS * 2)
+                retries += 1
+                continue
+                
+            if response.status_code != 200:
+                print(f"Error {response.status_code} en {url}")
+                return None
+                
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Extracción de datos
+            data = {}
+            
+            # Nombre del producto
+            name_tag = soup.find('h2', class_='h4 product-title text-center text-sm-left mb-2')
+            data['Nombre'] = name_tag.text.strip() if name_tag else 'N/A'
+            
+            # Características
+            features = {}
+            features_div = soup.find('div', class_='mb-2 ml-n1 text-center text-sm-left')
+            if features_div:
+                for span in features_div.find_all('span', class_='font-size badge badge-info m-1'):
+                    text = span.get_text(strip=True).split(':', 1)
+                    if len(text) == 2:
+                        features[text[0].strip()] = text[1].strip()
+            data['Características'] = features or 'N/A'
+            
+            # Descripción
+            desc_tag = soup.find('p', class_='mb-2')
+            data['Descripción'] = desc_tag.text.strip() if desc_tag else 'N/A'
+            
+            # Imagen
+            img_tag = soup.find('img', class_='rounded-lg float-sm-right d-block mx-auto')
+            if img_tag and 'src' in img_tag.attrs:
+                data['Imagen'] = img_tag['src']
+            else:
+                data['Imagen'] = 'N/A'
+            
+            # Precios
+            prices = {}
+            price_table = soup.find('div', class_='table-responsive')
+            if price_table:
+                product_links = price_table.find_all('p', class_='font-size-xs m-0')
+                for product_link in product_links:
+                    text = product_link.get_text(strip=True)
+                    lines = text.splitlines()
+                    for line in lines:
+                        parts = line.split()
+                        unidades = None
+                        
+                        # Buscar monedas
+                        for i, part in enumerate(parts):
+                            monedas = ["$", "€", "£"]
+                            
+                            if part.isdigit():  # Si es número, probablemente sean unidades
+                                unidades = int(part)
 
-# Obtener características
-features_div = soup.find("div", class_="mb-2 ml-n1 text-center text-sm-left")
-features_dict = {}
-if features_div:
-    spans = features_div.find_all("span", class_="font-size badge badge-info m-1")
-    for span in spans:
-        text = span.get_text(strip=True)
-        if ":" in text:
-            key, value = map(str.strip, text.split(":", 1))
-            features_dict[key] = value
+                            # Asignar precio nuevo
+                            if "nuevo" in part.lower() and unidades is not None:
+                                if "€" in line:  # Priorizar euros
+                                    prices["Nuevo Precio"] = parts[i - 1]
+                                    prices["Nuevo Unidades"] = unidades
+                                    unidades = None  # Reiniciar para evitar mezclar unidades con otras líneas
 
-# Obtener descripciones
-description_div = soup.find_all("p", class_="mb-2")
+                            # Asignar precio utilizado
+                            elif "utilizado" in part.lower() and unidades is not None:
+                                if "€" in line:  # Priorizar euros
+                                    prices["Utilizado Precio"] = parts[i - 1]
+                                    prices["Utilizado Unidades"] = unidades
+                                    unidades = None  # Reiniciar para evitar mezclar unidades con otras líneas
 
-# Obtener foto:
-img = soup.find("img", class_="rounded-lg float-sm-right d-block mx-auto")
+            data['Precios'] = prices or 'N/A'
+            
+            return data
+            
+        except Exception as e:
+            print(f"Error al procesar {url}: {str(e)}")
+            retries += 1
+            time.sleep(DELAY_BETWEEN_REQUESTS)
+    
+    print(f"Falló después de {MAX_RETRIES} intentos: {url}")
+    return None
 
-# Obtener precio
-# Obtener precios nuevos y usados
-prices_dict = {}
-price_table = soup.find("div", class_="table-responsive")
-if price_table:
-    product_links = price_table.find_all("p", class_="font-size-xs m-0")
-    for product_link in product_links:
-        text = product_link.get_text(strip=True)
-        if "nuevo" in text.lower():
-            new_price = text.split("nuevo de")[-1].split("$")[0].strip()
-            prices_dict["Precio Nuevo"] = f"{new_price} $"
-        if "utilizado" in text.lower():
-            used_price = text.split("utilizado desde")[-1].split("$")[0].strip()
-            prices_dict["Precio Usado"] = f"{used_price} $"
 
+def process_category(category):
+    """Procesa todos los enlaces de una categoría"""
+    input_path = f"links_procesados/unique_{category}_links.csv"
+    output_path = f"{output_dir}/{category}_productos.csv"
+    
+    try:
+        df = pd.read_csv(input_path)
+        links = df["Unique Product Links"].tolist()
+        
+        # Crear lista para almacenar datos
+        products_data = []
+        
+        for i, link in enumerate(links, 1):
+            print(f"Procesando {category} {i}/{len(links)}: {link}")
+            product_data = scrape_product(link)
+            if product_data:
+                products_data.append({
+                    'URL': link,
+                    'Nombre': product_data['Nombre'],
+                    'Características': str(product_data['Características']),
+                    'Descripción': product_data['Descripción'],
+                    'Imagen': product_data['Imagen'],
+                    'Precios': str(product_data['Precios'])
+                })
+                time.sleep(DELAY_BETWEEN_REQUESTS)  # Esperar entre solicitudes
+            
+            # Guardar datos cada 10 productos o al final
+            if i % 10 == 0 or i == len(links):
+                pd.DataFrame(products_data).to_csv(output_path, index=False, mode='a', header=not os.path.exists(output_path))
+                products_data = []  # Reiniciar buffer
+        
+        print(f"Datos guardados en {output_path}")
+        
+    except Exception as e:
+        print(f"Error procesando categoría {category}: {str(e)}")
+
+
+if __name__ == "__main__":
+    categories = [
+        "processor",
+        "case",
+        "cooler",
+        "graphic-card",
+        "memory",
+        "motherboard",
+        "power-supply",
+        "storage"
+    ]
+    
+    for category in categories:
+        print(f"\n=== Procesando categoría: {category} ===")
+        process_category(category)
