@@ -67,30 +67,34 @@ def scrape_product(url):
                 product_links = price_table.find_all('p', class_='font-size-xs m-0')
                 for product_link in product_links:
                     text = product_link.get_text(strip=True)
-                    print(text)
-                    lines = text.splitlines()
-                    for line in lines:
-                        parts = line.split()
-                        unidades = None
-                        
-                        for i, part in enumerate(parts):
-                            monedas = ["€", "$", "£"]
-                            if part.isdigit():  # Si es número, probablemente sean unidades
-                                unidades = int(part)
+                    monedas = ['€', '$', '£']
+                    # Buscar la moneda presente
+                    moneda = next((m for m in monedas if m in text), None)
 
-                            if "nuevo" in part.lower() and unidades is not None:
-                                prices["Nuevo Unidades"] = unidades
+                    if moneda:
+                        lines = text.splitlines()
+                        nuevos = 'N/A'
+                        precio_nuevos = 'N/A'
+                        usados = 'N/A'
+                        precio_usados = 'N/A'
 
-                            if any(moneda in part for moneda in monedas) and "nuevo" in line.lower():
-                                prices["Nuevo Precio"] = parts[i - 1]
-                                unidades = None  # Reiniciar para evitar mezclar unidades con otras líneas
+                        for line in lines:
+                            if moneda in line:
+                                line = line.replace('\xa0', ' ')
+                                if 'nuevo' in line:
+                                    partes = line.split('nuevo de')
+                                    nuevos = partes[0].strip().split()[-1]
+                                    precio_nuevos = partes[1].strip()
+                                elif 'utilizado' in line:
+                                    partes = line.split('utilizado desde')
+                                    usados = partes[0].strip().split()[-1]
+                                    precio_usados = partes[1].strip()
 
-                            if "utilizado" in part.lower() and unidades is not None:
-                                prices["Utilizado Unidades"] = unidades
+                        if nuevos != 'N/A':
+                            prices['Nuevos'] = {'Cantidad': int(nuevos), 'Precio': f"{precio_nuevos}"}
+                        if usados != 'N/A':
+                            prices['Utilizados'] = {'Cantidad': int(usados), 'Precio': f"{precio_usados}"}
 
-                            if any(moneda in part for moneda in monedas) and "nuevo" in line.lower():
-                                prices["Utilizado Precio"] = parts[i - 1]
-                                unidades = None  # Reiniciar para evitar mezclar unidades con otras líneas
             data['Precios'] = prices or 'N/A'
             
             return data
