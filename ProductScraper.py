@@ -3,11 +3,11 @@ import pandas as pd
 from bs4 import BeautifulSoup
 import os
 import time
-
+import random
 # Configuración inicial
 scraper = cloudscraper.create_scraper()
 MAX_RETRIES = 3
-DELAY_BETWEEN_REQUESTS = 5  # Segundos
+DELAY_BETWEEN_REQUESTS = 4  # Segundos
 
 # Crear directorio de salida si no existe
 output_dir = "productos_procesados"
@@ -107,42 +107,40 @@ def scrape_product(url):
     print(f"Falló después de {MAX_RETRIES} intentos: {url}")
     return None
 
-
 def process_category(category):
-    """Procesa todos los enlaces de una categoría"""
     input_path = f"links_procesados/unique_{category}_links.csv"
     output_path = f"{output_dir}/{category}_productos.csv"
     
-    try:
-        df = pd.read_csv(input_path)
-        links = df["Unique Product Links"].tolist()
+    # Leer enlaces ya procesados
+    processed_links = set()
+    if os.path.exists(output_path):
+        existing_df = pd.read_csv(output_path)
+        processed_links = set(existing_df["URL"].tolist())
+    
+    df = pd.read_csv(input_path)
+    links = df["Unique Product Links"].tolist()
+    
+    # Filtrar enlaces ya procesados
+    links_to_process = [link for link in links if link not in processed_links]
+    
+    for i, link in enumerate(links_to_process, 1):
+        print(f"Procesando {category} {i}/{len(links_to_process)}: {link}")
+        product_data = scrape_product(link)
         
-        # Crear lista para almacenar datos
-        products_data = []
+        if product_data:
+            # Guardar inmediatamente
+            new_row = {
+                'URL': link,
+                'Nombre': product_data['Nombre'],
+                'Características': str(product_data['Características']),
+                'Descripción': product_data['Descripción'],
+                'Imagen': product_data['Imagen'],
+                'Precios': str(product_data['Precios'])
+            }
+            pd.DataFrame([new_row]).to_csv(output_path, mode='a', header=not os.path.exists(output_path), index=False)
         
-        for i, link in enumerate(links, 1):
-            print(f"Procesando {category} {i}/{len(links)}: {link}")
-            product_data = scrape_product(link)
-            if product_data:
-                products_data.append({
-                    'URL': link,
-                    'Nombre': product_data['Nombre'],
-                    'Características': str(product_data['Características']),
-                    'Descripción': product_data['Descripción'],
-                    'Imagen': product_data['Imagen'],
-                    'Precios': str(product_data['Precios'])
-                })
-                time.sleep(DELAY_BETWEEN_REQUESTS)  # Esperar entre solicitudes
-            
-            # Guardar datos cada 10 productos o al final
-            if i % 10 == 0 or i == len(links):
-                pd.DataFrame(products_data).to_csv(output_path, index=False, mode='a', header=not os.path.exists(output_path))
-                products_data = []  # Reiniciar buffer
-        
-        print(f"Datos guardados en {output_path}")
-        
-    except Exception as e:
-        print(f"Error procesando categoría {category}: {str(e)}")
+        # Delay
+        time.sleep(DELAY_BETWEEN_REQUESTS)
 
 
 if __name__ == "__main__":
